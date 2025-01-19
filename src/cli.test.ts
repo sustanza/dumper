@@ -2,14 +2,22 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { main } from "./cli";
 import { generateRepoDocs } from "./lib";
 
-// --------------------------------------------------------------
-// 1) Mock child_process, so no real 'git' commands are run
-// --------------------------------------------------------------
+/**
+ * This test suite covers the CLI behavior. It mocks out child_process
+ * to avoid running real Git commands. The CLI’s behavior regarding
+ * repository cloning, filtering Markdown files, and switching branches
+ * is verified here.
+ */
 vi.mock("child_process", () => {
   const realFs = require("fs");
   const realPath = require("path");
 
   return {
+    /**
+     * Mocks synchronous child_process execution, creating a temporary
+     * directory structure with Markdown files. It returns fake commit
+     * data and simulates a missing branch by throwing an error.
+     */
     execSync: vi.fn((command: string) => {
       if (command.includes("rev-parse")) {
         return "mockedSHA";
@@ -24,7 +32,6 @@ vi.mock("child_process", () => {
         if (command.includes("no-such-branch")) {
           throw new Error("Could not find branch 'no-such-branch'");
         }
-        // Otherwise, create some dummy markdown
         const parts = command.trim().split(/\s+/);
         const cloneDir = parts[parts.length - 1];
         realFs.mkdirSync(cloneDir, { recursive: true });
@@ -45,9 +52,10 @@ vi.mock("child_process", () => {
   };
 });
 
-// --------------------------------------------------------------
-// 2) Spy on console.log / console.error / process.exit in each test
-// --------------------------------------------------------------
+/**
+ * This block spies on console and process.exit, ensuring we can detect
+ * logs and handle exit scenarios without truly exiting the process.
+ */
 describe("CLI (cli.ts)", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
@@ -56,18 +64,30 @@ describe("CLI (cli.ts)", () => {
   beforeEach(() => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    exitSpy = vi.spyOn(process, "exit").mockImplementation((_code?: number) => {
-      throw new Error("process.exit was called.");
-    });
+
+    /**
+     * Vitest expects a mock signature like (this: unknown, ...args: unknown[]) => unknown.
+     * Node/Bun definitions for process.exit can differ (e.g. (code?: string|number|null|undefined) => never).
+     * Casting to a broader interface avoids a type conflict without using `any`.
+     */
+    const typedProcess = process as unknown as {
+      exit(this: unknown, ...args: unknown[]): unknown;
+    };
+
+    exitSpy = vi
+      .spyOn(typedProcess, "exit")
+      .mockImplementation(function (this: unknown, ..._args: unknown[]): never {
+        throw new Error("process.exit was called.");
+      });
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  // --------------------------------------------------------------
-  // Test: no arguments => show help + exit(1)
-  // --------------------------------------------------------------
+  /**
+   * Verifies that the CLI errors and exits if no arguments are provided.
+   */
   it("should error and exit if no arguments are provided", async () => {
     const originalArgv = process.argv;
     process.argv = ["node", "cli.ts"];
@@ -84,16 +104,16 @@ describe("CLI (cli.ts)", () => {
     process.argv = originalArgv;
   });
 
-  // --------------------------------------------------------------
-  // Test: basic usage => logs metadata + logs docs
-  // --------------------------------------------------------------
+  /**
+   * Verifies basic usage with a valid GitHub repo, ensuring metadata and
+   * aggregated Markdown content are logged correctly.
+   */
   it("should handle a basic usage call", async () => {
     const originalArgv = process.argv;
     process.argv = ["node", "cli.ts", "https://github.com/username/repo.git"];
 
-    await main(); // This should NOT throw
+    await main();
 
-    // *** Check first console.log call => "Metadata:", {owner, repo, ...}
     expect(logSpy).toHaveBeenNthCalledWith(
       1,
       "Metadata:",
@@ -104,22 +124,20 @@ describe("CLI (cli.ts)", () => {
         date: "mockedDate",
       })
     );
-
-    // *** Check second console.log call => "Output:\n", <big string with docs>
     expect(logSpy).toHaveBeenNthCalledWith(
       2,
       "Output:\n",
       expect.stringContaining("# Documentation\nSome content here")
     );
-
-    // Should not exit on success
     expect(exitSpy).not.toHaveBeenCalled();
+
     process.argv = originalArgv;
   });
 
-  // --------------------------------------------------------------
-  // Test: filter => logs only docs/intro.md
-  // --------------------------------------------------------------
+  /**
+   * Verifies that the --filter argument correctly limits which Markdown
+   * files are included in the final output.
+   */
   it("should respect --filter argument", async () => {
     const originalArgv = process.argv;
     process.argv = [
@@ -131,24 +149,21 @@ describe("CLI (cli.ts)", () => {
 
     await main();
 
-    // *** First call is "Metadata:", ...
     expect(logSpy).toHaveBeenNthCalledWith(1, "Metadata:", expect.any(Object));
-
-    // *** Second call is "Output:\n", the aggregator with only docs/intro.md
-    // ADDED: Check the second argument of the second call for your docs text
     expect(logSpy).toHaveBeenNthCalledWith(
       2,
       "Output:\n",
       expect.stringContaining("# docs/intro\nsome doc content")
     );
-
     expect(exitSpy).not.toHaveBeenCalled();
+
     process.argv = originalArgv;
   });
 
-  // --------------------------------------------------------------
-  // Test: branch => pass the branch in calls
-  // --------------------------------------------------------------
+  /**
+   * Verifies that the CLI accepts a --branch argument and attempts to
+   * check out that branch upon cloning.
+   */
   it("should respect --branch argument", async () => {
     const originalArgv = process.argv;
     process.argv = [
@@ -160,22 +175,21 @@ describe("CLI (cli.ts)", () => {
 
     await main();
 
-    // The first console.log with "Metadata:", ...
     expect(logSpy).toHaveBeenNthCalledWith(
       1,
       "Metadata:",
       expect.objectContaining({ sha: "mockedSHA" })
     );
-    // The second console.log with aggregated docs
     expect(logSpy).toHaveBeenNthCalledWith(2, "Output:\n", expect.any(String));
-
     expect(exitSpy).not.toHaveBeenCalled();
+
     process.argv = originalArgv;
   });
 
-  // --------------------------------------------------------------
-  // Test: invalid branch => fails + calls process.exit
-  // --------------------------------------------------------------
+  /**
+   * Verifies that the CLI exits with an error when specifying a branch
+   * that does not exist in the repository.
+   */
   it("should error and exit if branch is inaccessible", async () => {
     const originalArgv = process.argv;
     process.argv = [
