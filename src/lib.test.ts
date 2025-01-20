@@ -125,3 +125,16 @@ describe("generateRepoDocs - advanced scenarios", () => {
     ).rejects.toThrow();
   });
 });
+
+describe("generateRepoDocs - exclude functionality", () => {
+  it("should exclude matching files", async () => {
+    const result = await generateRepoDocs(
+      "https://github.com/username/repo.git",
+      {
+        exclude: "docs/.*\\.md",
+      }
+    );
+    // "docs/intro.md" should not appear in the output
+    expect(result.output).not.toContain("## docs/intro.md");
+  });
+});

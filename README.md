@@ -13,6 +13,7 @@ The inspiration for writing this tool is to provide a simple way to gather conte
    - [Basic Usage](#basic-usage)
    - [Filtering Files](#filtering-files)
    - [Checking Out a Specific Branch](#checking-out-a-specific-branch)
+   - [Excluding Files](#excluding-files)
 
 ---
 
@@ -102,6 +103,14 @@ Combine it with a filter if desired:
 
 ```bash
 bun run src/cli.ts https://github.com/{repo}.git --branch={branch} --filter="docs/.*\.md"
+```
+
+### Excluding Files
+
+If you want to skip certain files, pass an `--exclude` option (single or multiple) with patterns. For example:
+
+```bash
+bun run src/cli.ts https://github.com/{repo} --exclude="node_modules" --exclude="test/.*\\.md"
 ```
 
 ### Example Usage

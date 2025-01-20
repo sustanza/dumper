@@ -19,12 +19,15 @@ export async function main(): Promise<void> {
   let repoUrl = "";
   let branch = "";
   let filter = "";
+  let exclude: string[] = [];
 
   for (const arg of args) {
     if (arg.startsWith("--branch=")) {
       branch = arg.split("=")[1].trim();
     } else if (arg.startsWith("--filter=")) {
       filter = arg.split("=")[1].trim();
+    } else if (arg.startsWith("--exclude=")) {
+      exclude.push(arg.split("=")[1].trim());
     } else {
       repoUrl = arg;
     }
@@ -42,6 +45,7 @@ export async function main(): Promise<void> {
     const { output, metadata } = await generateRepoDocs(repoUrl, {
       filter,
       branch,
+      exclude,
     });
 
     console.log("Metadata:", metadata);

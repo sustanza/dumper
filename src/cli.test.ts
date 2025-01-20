@@ -181,4 +181,22 @@ describe("CLI usage", () => {
 
     process.argv = originalArgv;
   });
+
+  it("excludes matching file patterns if --exclude is provided", async () => {
+    const originalArgv = process.argv;
+    process.argv = [
+      "node",
+      "cli.ts",
+      "https://github.com/owner/repo.git",
+      "--exclude=docs/.*\\.md",
+    ];
+
+    await main();
+
+    const secondCall = logSpy.mock.calls[1];
+    const content = secondCall[1] as string;
+    expect(content).not.toContain("## docs/intro.md");
+
+    process.argv = originalArgv;
+  });
 });
