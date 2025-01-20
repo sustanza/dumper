@@ -38,10 +38,13 @@ interface GenerateRepoDocsReturn {
 }
 
 /**
- * Generates documentation for a given repository.
+ * Generates documentation for a given repository, returning:
+ * 1) Aggregated Markdown, with each file preceded by a header
+ *    showing its relative path.
+ * 2) Metadata including commit SHA and date.
  *
  * @param {string} repoUrl - The URL of the repository.
- * @param {GenerateRepoDocsOptions} [options={}] - Options for generating documentation.
+ * @param {GenerateRepoDocsOptions} [options={}] - Filtering and branching options.
  * @returns {Promise<GenerateRepoDocsReturn>} - The generated documentation and metadata.
  */
 export async function generateRepoDocs(
@@ -54,14 +57,12 @@ export async function generateRepoDocs(
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const repoInfo = getRepoInfo(repoUrl);
 
-  // Pass the branch along
-  const tmpDir = await cloneRepo(repoUrl, __dirname, branch);
+  const tmpDir = await cloneRepo(repoUrl, branch);
 
   try {
     const { sha, date } = getRepoMetadata(tmpDir);
     const mdFiles = await findMarkdownFiles(tmpDir, filterRegex);
     const output = await processFiles(mdFiles, tmpDir, repoInfo);
-
     await cleanup(tmpDir);
 
     return {
@@ -75,35 +76,22 @@ export async function generateRepoDocs(
 }
 
 /**
- * Clones a repository to a temporary directory.
+ * Clones a repository to a new temporary directory. Depth=1 is used for a lightweight clone.
  *
  * @param {string} url - The URL of the repository.
- * @param {string} baseDir - The base directory for cloning.
  * @param {string} [branch] - The branch to clone.
- * @returns {Promise<string>} - The path to the cloned repository.
- * @throws {Error} - If the repository cannot be cloned.
+ * @returns {Promise<string>} - The path to the cloned repository directory.
  */
-async function cloneRepo(
-  url: string,
-  baseDir: string,
-  branch?: string
-): Promise<string> {
+async function cloneRepo(url: string, branch?: string): Promise<string> {
   const randomName = "dumper-" + randomBytes(8).toString("hex");
-  const tmpDir = path.join(tmpdir(), randomName);
+  const directory = path.join(tmpdir(), randomName);
 
-  // If a branch is specified, add `-b branchName`
   const branchArg = branch ? `-b ${branch}` : "";
-  try {
-    execSync(`git clone --depth=1 ${branchArg} ${url} ${tmpDir}`, {
-      stdio: "inherit",
-    });
-  } catch (err: any) {
-    throw new Error(
-      `Failed to clone branch '${branch || "default"}': ${err.message}`
-    );
-  }
+  execSync(`git clone --depth=1 ${branchArg} ${url} ${directory}`, {
+    stdio: "inherit",
+  });
 
-  return tmpDir;
+  return directory;
 }
 
 /**
@@ -111,7 +99,7 @@ async function cloneRepo(
  *
  * @param {string} repoUrl - The URL of the repository.
  * @returns {RepoInfo} - The owner and repository name.
- * @throws {Error} - If the URL cannot be parsed.
+ * @throws {Error} - If the URL format is invalid.
  */
 export function getRepoInfo(repoUrl: string): RepoInfo {
   const { pathname } = new URL(repoUrl);
@@ -123,17 +111,15 @@ export function getRepoInfo(repoUrl: string): RepoInfo {
   }
   return { owner, repo };
 }
+
 /**
  * Gets the latest commit SHA and date from a cloned repository directory.
  *
- * @param {string} tmpDir - The path to the cloned repository.
+ * @param {string} tmpDir - The local path to the cloned repository.
  * @returns {{ sha: string; date: string }} - The commit SHA and date.
  */
 function getRepoMetadata(tmpDir: string): { sha: string; date: string } {
-  // Grab the latest commit SHA
   const sha = execSync(`git rev-parse HEAD`, { cwd: tmpDir }).toString().trim();
-
-  // Grab the date of the latest commit
   const date = execSync(`git log -1 --format=%cd HEAD`, { cwd: tmpDir })
     .toString()
     .trim();
@@ -142,10 +128,10 @@ function getRepoMetadata(tmpDir: string): { sha: string; date: string } {
 }
 
 /**
- * Recursively finds all .md files in a directory (or any filter pattern).
+ * Recursively finds markdown files in a directory, optionally filtered by a RegExp.
  *
- * @param {string} dir - The directory to search.
- * @param {RegExp | null} filterRegex - A regex to filter files.
+ * @param {string} dir - Directory to search.
+ * @param {RegExp | null} filterRegex - A regex for filtering file paths.
  * @returns {Promise<string[]>} - A list of matching file paths.
  */
 async function findMarkdownFiles(
@@ -154,16 +140,13 @@ async function findMarkdownFiles(
 ): Promise<string[]> {
   const results: string[] = [];
 
-  // A simple recursive function to walk the directory structure
   async function walk(currentDir: string) {
     const entries = await fs.readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {
-        // Recurse into subdirectory
         await walk(fullPath);
-      } else {
-        // Check if it's a .md file (or pass the filterRegex)
+      } else if (entry.isFile()) {
         if (
           (filterRegex && filterRegex.test(fullPath)) ||
           (!filterRegex && fullPath.toLowerCase().endsWith(".md"))
@@ -179,34 +162,34 @@ async function findMarkdownFiles(
 }
 
 /**
- * Processes the markdown files and combines their content.
+ * Combines the content of all markdown files, placing a markdown header
+ * before each file showing its path relative to the repository root.
  *
- * @param {string[]} files - The list of markdown files.
- * @param {string} baseDir - The base directory of the repository.
- * @param {RepoInfo} repoInfo - Information about the repository.
- * @returns {Promise<string>} - The combined content of the markdown files.
+ * @param {string[]} files - List of markdown file paths.
+ * @param {string} baseDir - The base directory of the repository clone.
+ * @param {RepoInfo} repoInfo - The repository owner and name.
+ * @returns {Promise<string>} - The combined markdown content.
  */
 async function processFiles(
   files: string[],
   baseDir: string,
   repoInfo: RepoInfo
 ): Promise<string> {
-  let combinedOutput = `# Documentation for ${repoInfo.owner}/${repoInfo.repo}\n\n`;
+  let combinedOutput = `# Documentation for ${repoInfo.owner}/${repoInfo.repo}\n`;
 
-  for (const file of files) {
-    const content = await fs.readFile(file, "utf-8");
-    const relativePath = path.relative(baseDir, file);
-    combinedOutput += `\n\n---\n**${relativePath}**:\n\n${content}\n`;
+  for (const filePath of files) {
+    const relativePath = path.relative(baseDir, filePath);
+    const content = await fs.readFile(filePath, "utf8");
+    combinedOutput += `\n## ${relativePath}\n\n${content}\n`;
   }
 
-  return combinedOutput;
+  return combinedOutput.trim();
 }
 
 /**
- * Removes the cloned repository's temporary directory.
+ * Removes the temporary directory for a cloned repository.
  *
- * @param {string} dir - The path to the temporary directory.
- * @returns {Promise<void>}
+ * @param {string} dir - The temporary directory path.
  */
 async function cleanup(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true });

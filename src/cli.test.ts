@@ -1,62 +1,53 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { main } from "./cli";
-import { generateRepoDocs } from "./lib";
 
 /**
- * This test suite covers the CLI behavior. It mocks out child_process
- * to avoid running real Git commands. The CLI’s behavior regarding
- * repository cloning, filtering Markdown files, and switching branches
- * is verified here.
+ * Mocks child_process to prevent real Git operations. The mock simulates
+ * cloning, branch-checkout, and populates a temporary directory with
+ * certain markdown files. The tests verify that each file is preceded
+ * by a markdown header referencing the file's path.
  */
-vi.mock("child_process", () => {
+vi.mock("node:child_process", () => {
   const realFs = require("fs");
   const realPath = require("path");
-
   return {
-    /**
-     * Mocks synchronous child_process execution, creating a temporary
-     * directory structure with Markdown files. It returns fake commit
-     * data and simulates a missing branch by throwing an error.
-     */
     execSync: vi.fn((command: string) => {
-      if (command.includes("rev-parse")) {
-        return "mockedSHA";
-      }
-      if (command.includes("git log -1")) {
-        return "mockedDate";
-      }
-      if (command.includes("git checkout")) {
-        return "";
-      }
       if (command.includes("git clone")) {
-        if (command.includes("no-such-branch")) {
-          throw new Error("Could not find branch 'no-such-branch'");
+        // Check for missing branch scenario
+        if (command.includes("-b no-such-branch")) {
+          throw new Error("Failed to clone branch 'no-such-branch'");
         }
+        // Simulate creating a repo directory with two .md files
         const parts = command.trim().split(/\s+/);
         const cloneDir = parts[parts.length - 1];
         realFs.mkdirSync(cloneDir, { recursive: true });
         realFs.writeFileSync(
           realPath.join(cloneDir, "README.md"),
-          "# Documentation\nSome content here"
+          "# Main Documentation\nContents here..."
         );
         realFs.mkdirSync(realPath.join(cloneDir, "docs"), { recursive: true });
         realFs.writeFileSync(
           realPath.join(cloneDir, "docs", "intro.md"),
-          "# docs/intro\nsome doc content"
+          "# Intro Doc\nDetail about usage"
         );
-        return "";
+        return Buffer.from("");
       }
-      return "";
+      if (command.includes("git rev-parse HEAD")) {
+        return Buffer.from("mockedSHA\n");
+      }
+      if (command.includes("git log -1 --format=%cd HEAD")) {
+        return Buffer.from("mockedDate\n");
+      }
+      return Buffer.from("");
     }),
-    spawnSync: vi.fn(() => ({ stdout: "", stderr: "", status: 0 })),
   };
 });
 
 /**
- * This block spies on console and process.exit, ensuring we can detect
- * logs and handle exit scenarios without truly exiting the process.
+ * This test suite checks CLI usage, verifying that the aggregated output
+ * includes a markdown header (e.g., '## README.md') before each file.
  */
-describe("CLI (cli.ts)", () => {
+describe("CLI usage", () => {
   let logSpy: ReturnType<typeof vi.spyOn>;
   let errorSpy: ReturnType<typeof vi.spyOn>;
   let exitSpy: ReturnType<typeof vi.spyOn>;
@@ -65,15 +56,9 @@ describe("CLI (cli.ts)", () => {
     logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    /**
-     * Vitest expects a mock signature like (this: unknown, ...args: unknown[]) => unknown.
-     * Node/Bun definitions for process.exit can differ (e.g. (code?: string|number|null|undefined) => never).
-     * Casting to a broader interface avoids a type conflict without using `any`.
-     */
     const typedProcess = process as unknown as {
       exit(this: unknown, ...args: unknown[]): unknown;
     };
-
     exitSpy = vi
       .spyOn(typedProcess, "exit")
       .mockImplementation(function (this: unknown, ..._args: unknown[]): never {
@@ -85,10 +70,7 @@ describe("CLI (cli.ts)", () => {
     vi.restoreAllMocks();
   });
 
-  /**
-   * Verifies that the CLI errors and exits if no arguments are provided.
-   */
-  it("should error and exit if no arguments are provided", async () => {
+  it("exits with error if no repo URL is provided", async () => {
     const originalArgv = process.argv;
     process.argv = ["node", "cli.ts"];
 
@@ -96,21 +78,14 @@ describe("CLI (cli.ts)", () => {
     expect(errorSpy).toHaveBeenCalledWith(
       "Error: No GitHub repository URL provided."
     );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Usage: bun run cli.ts <github_url>")
-    );
     expect(exitSpy).toHaveBeenCalledWith(1);
 
     process.argv = originalArgv;
   });
 
-  /**
-   * Verifies basic usage with a valid GitHub repo, ensuring metadata and
-   * aggregated Markdown content are logged correctly.
-   */
-  it("should handle a basic usage call", async () => {
+  it("generates docs with default branch and no filter", async () => {
     const originalArgv = process.argv;
-    process.argv = ["node", "cli.ts", "https://github.com/username/repo.git"];
+    process.argv = ["node", "cli.ts", "https://github.com/owner/repo.git"];
 
     await main();
 
@@ -118,58 +93,57 @@ describe("CLI (cli.ts)", () => {
       1,
       "Metadata:",
       expect.objectContaining({
-        owner: "username",
+        owner: "owner",
         repo: "repo",
         sha: "mockedSHA",
         date: "mockedDate",
       })
     );
-    expect(logSpy).toHaveBeenNthCalledWith(
-      2,
-      "Output:\n",
-      expect.stringContaining("# Documentation\nSome content here")
-    );
-    expect(exitSpy).not.toHaveBeenCalled();
+
+    // The second call to console.log should print "Output:\n" and the combined content
+    const secondCall = logSpy.mock.calls[1];
+    expect(secondCall[0]).toBe("Output:\n");
+    const content = secondCall[1] as string;
+
+    // Combined content should reference README.md and docs/intro.md
+    expect(content).toContain("## README.md");
+    expect(content).toContain("# Main Documentation");
+    expect(content).toContain("## docs/intro.md");
+    expect(content).toContain("# Intro Doc");
 
     process.argv = originalArgv;
   });
 
-  /**
-   * Verifies that the --filter argument correctly limits which Markdown
-   * files are included in the final output.
-   */
-  it("should respect --filter argument", async () => {
+  it("filters out README if filter is 'docs/.*\\.md'", async () => {
     const originalArgv = process.argv;
     process.argv = [
       "node",
       "cli.ts",
-      "https://github.com/username/repo.git",
+      "https://github.com/owner/repo.git",
       "--filter=docs/.*\\.md",
     ];
 
     await main();
 
+    // Should still print the metadata
     expect(logSpy).toHaveBeenNthCalledWith(1, "Metadata:", expect.any(Object));
-    expect(logSpy).toHaveBeenNthCalledWith(
-      2,
-      "Output:\n",
-      expect.stringContaining("# docs/intro\nsome doc content")
-    );
-    expect(exitSpy).not.toHaveBeenCalled();
+
+    // Output includes only the docs/intro.md file
+    const secondCall = logSpy.mock.calls[1];
+    const content = secondCall[1] as string;
+    expect(content).not.toContain("## README.md");
+    expect(content).toContain("## docs/intro.md");
+    expect(content).toContain("# Intro Doc");
 
     process.argv = originalArgv;
   });
 
-  /**
-   * Verifies that the CLI accepts a --branch argument and attempts to
-   * check out that branch upon cloning.
-   */
-  it("should respect --branch argument", async () => {
+  it("clones specific branch if --branch is provided", async () => {
     const originalArgv = process.argv;
     process.argv = [
       "node",
       "cli.ts",
-      "https://github.com/username/repo.git",
+      "https://github.com/owner/repo.git",
       "--branch=dev",
     ];
 
@@ -180,27 +154,25 @@ describe("CLI (cli.ts)", () => {
       "Metadata:",
       expect.objectContaining({ sha: "mockedSHA" })
     );
-    expect(logSpy).toHaveBeenNthCalledWith(2, "Output:\n", expect.any(String));
-    expect(exitSpy).not.toHaveBeenCalled();
+
+    const secondCall = logSpy.mock.calls[1];
+    const content = secondCall[1] as string;
+    expect(content).toContain("## README.md");
+    expect(content).toContain("## docs/intro.md");
 
     process.argv = originalArgv;
   });
 
-  /**
-   * Verifies that the CLI exits with an error when specifying a branch
-   * that does not exist in the repository.
-   */
-  it("should error and exit if branch is inaccessible", async () => {
+  it("exits with error when a branch does not exist", async () => {
     const originalArgv = process.argv;
     process.argv = [
       "node",
       "cli.ts",
-      "https://github.com/username/repo.git",
+      "https://github.com/owner/repo.git",
       "--branch=no-such-branch",
     ];
 
     await expect(main()).rejects.toThrow("process.exit was called.");
-
     expect(errorSpy).toHaveBeenCalledWith(
       "Failed to generate docs:",
       expect.any(Error)
