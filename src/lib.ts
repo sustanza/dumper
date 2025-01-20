@@ -25,7 +25,7 @@ interface RepoMetadata extends RepoInfo {
  * Options for generating repository documentation.
  */
 interface GenerateRepoDocsOptions {
-  filter?: string | string[];
+  include?: string | string[];
   branch?: string;
   exclude?: string | string[];
 }
@@ -52,18 +52,20 @@ export async function generateRepoDocs(
   repoUrl: string,
   options: GenerateRepoDocsOptions = {}
 ): Promise<GenerateRepoDocsReturn> {
-  const filterPatterns = Array.isArray(options.filter)
-    ? options.filter
-    : options.filter
-    ? [options.filter]
+  const includePatterns = Array.isArray(options.include)
+    ? options.include
+    : options.include
+    ? [options.include]
     : [];
-  const filterRegexes = filterPatterns.map((pat) => new RegExp(pat));
+  const includeRegexes = includePatterns.map((pat) => new RegExp(pat));
+
   const excludePatterns = Array.isArray(options.exclude)
     ? options.exclude
     : options.exclude
     ? [options.exclude]
     : [];
   const excludeRegexes = excludePatterns.map((pat) => new RegExp(pat));
+
   const { branch } = options;
 
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,7 +77,7 @@ export async function generateRepoDocs(
     const { sha, date } = getRepoMetadata(tmpDir);
     const mdFiles = await findMarkdownFiles(
       tmpDir,
-      filterRegexes,
+      includeRegexes,
       excludeRegexes
     );
     const output = await processFiles(mdFiles, tmpDir, repoInfo);
@@ -147,13 +149,13 @@ function getRepoMetadata(tmpDir: string): { sha: string; date: string } {
  * Recursively finds markdown files in a directory, optionally filtered by a RegExp.
  *
  * @param {string} dir - Directory to search.
- * @param {RegExp[]} filterRegexes - An array of regexes for filtering file paths.
+ * @param {RegExp[]} includeRegexes - An array of regexes for filtering file paths.
  * @param {RegExp[]} excludeRegexes - An array of regexes for excluding file paths.
  * @returns {Promise<string[]>} - A list of matching file paths.
  */
 async function findMarkdownFiles(
   dir: string,
-  filterRegexes: RegExp[],
+  includeRegexes: RegExp[],
   excludeRegexes: RegExp[]
 ): Promise<string[]> {
   const results: string[] = [];
@@ -166,9 +168,9 @@ async function findMarkdownFiles(
         await walk(fullPath);
       } else if (entry.isFile()) {
         if (
-          ((filterRegexes.length > 0 &&
-            filterRegexes.some((rx) => rx.test(fullPath))) ||
-            (filterRegexes.length === 0 &&
+          ((includeRegexes.length > 0 &&
+            includeRegexes.some((rx) => rx.test(fullPath))) ||
+            (includeRegexes.length === 0 &&
               fullPath.toLowerCase().endsWith(".md"))) &&
           !excludeRegexes.some((ex) => ex.test(fullPath))
         ) {

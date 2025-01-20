@@ -11,7 +11,7 @@ The inspiration for writing this tool is to provide a simple way to gather conte
 3. [Installation](#installation)
 4. [Usage](#usage)
    - [Basic Usage](#basic-usage)
-   - [Filtering Files](#filtering-files)
+   - [Including Files](#including-files)
    - [Checking Out a Specific Branch](#checking-out-a-specific-branch)
    - [Excluding Files](#excluding-files)
 
@@ -78,15 +78,15 @@ Output:
 - Metadata: A JSON-like output with username, repo, latest commit SHA, commit date.
 - Output: The combined Markdown contents from the repository.
 
-### Filtering Files
+### Including Files
 
-If you want to limit which Markdown files are processed, you can supply a `--filter` option with a RegExp string. For example, to only include files under `docs/`:
+If you want to limit which Markdown files are processed, you can supply one or more regex patterns via the `--include` option, separated by commas. For example:
 
 ```bash
-bun run src/cli.ts https://github.com/{repo} --filter="docs/.*\.md"
+bun run src/cli.ts https://github.com/{repo} --include="docs/.*\.md, examples/.*\.md"
 ```
 
-This will recursively search for `.md` files inside any directory under `docs/`. If you need a more specific pattern, just adjust the RegExp accordingly.
+This will recursively search for `.md` files inside the `docs/` and `examples/` folders. If you need a more specific pattern, just adjust the RegExp accordingly.
 
 ### Checking Out a Specific Branch
 
@@ -107,11 +107,13 @@ bun run src/cli.ts https://github.com/{repo}.git --branch={branch} --filter="doc
 
 ### Excluding Files
 
-If you want to skip certain files, pass an `--exclude` option (single or multiple) with patterns. For example:
+If you want to skip certain files, pass an `--exclude` option with one or more RegExp patterns, separated by commas. For example:
 
 ```bash
-bun run src/cli.ts https://github.com/{repo} --exclude="node_modules" --exclude="test/.*\\.md"
+bun run src/cli.ts https://github.com/{repo} --exclude="node_modules, test/.*\\.md"
 ```
+
+You can specify multiple patterns in one argument or via multiple `--exclude` arguments, and any matching files will be excluded from the output.
 
 ### Example Usage
 

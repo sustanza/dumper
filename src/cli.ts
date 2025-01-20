@@ -11,23 +11,25 @@ export async function main(): Promise<void> {
   if (args.length < 1) {
     console.error("Error: No GitHub repository URL provided.");
     console.error(
-      "Usage: bun run cli.ts <github_url> [--branch=...] [--filter=...]"
+      "Usage: bun run cli.ts <github_url> [--branch=...] [--include=...] [--exclude=...]"
     );
     process.exit(1);
   }
 
   let repoUrl = "";
   let branch = "";
-  let filter = "";
+  let include: string[] = [];
   let exclude: string[] = [];
 
   for (const arg of args) {
     if (arg.startsWith("--branch=")) {
       branch = arg.split("=")[1].trim();
-    } else if (arg.startsWith("--filter=")) {
-      filter = arg.split("=")[1].trim();
+    } else if (arg.startsWith("--include=")) {
+      const raw = arg.split("=")[1].trim();
+      include.push(...raw.split(",").map((str) => str.trim()));
     } else if (arg.startsWith("--exclude=")) {
-      exclude.push(arg.split("=")[1].trim());
+      const raw = arg.split("=")[1].trim();
+      exclude.push(...raw.split(",").map((str) => str.trim()));
     } else {
       repoUrl = arg;
     }
@@ -36,14 +38,14 @@ export async function main(): Promise<void> {
   if (!repoUrl) {
     console.error("Error: No GitHub repository URL provided.");
     console.error(
-      "Usage: bun run cli.ts <github_url> [--branch=...] [--filter=...]"
+      "Usage: bun run cli.ts <github_url> [--branch=...] [--include=...] [--exclude=...]"
     );
     process.exit(1);
   }
 
   try {
     const { output, metadata } = await generateRepoDocs(repoUrl, {
-      filter,
+      include,
       branch,
       exclude,
     });

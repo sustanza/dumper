@@ -114,13 +114,13 @@ describe("CLI usage", () => {
     process.argv = originalArgv;
   });
 
-  it("filters out README if filter is 'docs/.*\\.md'", async () => {
+  it("filters out README if --include=docs/.*\\.md", async () => {
     const originalArgv = process.argv;
     process.argv = [
       "node",
       "cli.ts",
       "https://github.com/owner/repo.git",
-      "--filter=docs/.*\\.md",
+      "--include=docs/.*\\.md",
     ];
 
     await main();
@@ -135,6 +135,23 @@ describe("CLI usage", () => {
     expect(content).toContain("## docs/intro.md");
     expect(content).toContain("# Intro Doc");
 
+    process.argv = originalArgv;
+  });
+
+  it("accepts multiple includes via comma separation", async () => {
+    const originalArgv = process.argv;
+    process.argv = [
+      "node",
+      "cli.ts",
+      "https://github.com/owner/repo.git",
+      "--include=docs/.*\\.md, examples/.*\\.md",
+    ];
+
+    await main();
+    const secondCall = logSpy.mock.calls[1];
+    const content = secondCall[1] as string;
+    // Should include docs/intro.md, would also include examples/whatever.md if present
+    expect(content).toContain("## docs/intro.md");
     process.argv = originalArgv;
   });
 
@@ -195,6 +212,25 @@ describe("CLI usage", () => {
 
     const secondCall = logSpy.mock.calls[1];
     const content = secondCall[1] as string;
+    expect(content).not.toContain("## docs/intro.md");
+
+    process.argv = originalArgv;
+  });
+
+  it("excludes multiple file patterns if --exclude is comma-delimited", async () => {
+    const originalArgv = process.argv;
+    process.argv = [
+      "node",
+      "cli.ts",
+      "https://github.com/owner/repo.git",
+      "--exclude=README\\.md, docs/.*\\.md",
+    ];
+
+    await main();
+    const secondCall = logSpy.mock.calls[1];
+    const content = secondCall[1] as string;
+    // Should exclude both README.md and docs/intro.md
+    expect(content).not.toContain("## README.md");
     expect(content).not.toContain("## docs/intro.md");
 
     process.argv = originalArgv;

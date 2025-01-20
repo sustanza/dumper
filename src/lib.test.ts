@@ -98,11 +98,11 @@ describe("generateRepoDocs", () => {
 });
 
 describe("generateRepoDocs - advanced scenarios", () => {
-  it("should handle filter option", async () => {
+  it("should handle include option", async () => {
     const result = await generateRepoDocs(
       "https://github.com/username/repo.git",
       {
-        filter: "docs/.*\\.md",
+        include: "docs/.*\\.md",
       }
     );
     expect(result.output).toContain("# docs/intro");
