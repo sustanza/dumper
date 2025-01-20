@@ -69,6 +69,12 @@ describe("getRepoInfo", () => {
   it("should throw for invalid URL", () => {
     expect(() => getRepoInfo("bad-url")).toThrowError();
   });
+
+  it("should throw if owner or repo cannot be parsed", () => {
+    expect(() => getRepoInfo("https://github.com/invalid-url")).toThrowError(
+      "Could not parse owner/repo from URL: https://github.com/invalid-url"
+    );
+  });
 });
 
 describe("getRepoInfo - additional checks", () => {
